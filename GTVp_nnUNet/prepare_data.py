@@ -16,6 +16,7 @@ from tqdm import tqdm
 import torchio as tio
 from glob import glob
 
+# 重采样
 def resample_nii(input_path: str, output_path: str, target_spacing: tuple = (1.5, 1.5, 1.5), n=None, reference_image=None, mode="linear"):
     """
     Resample a nii.gz file to a specified spacing using torchio.
