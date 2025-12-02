@@ -129,9 +129,12 @@ class SAM3DDataset(Dataset):
         img_sitk = sitk.ReadImage(self.img_paths[idx])
         mask_sitk = sitk.ReadImage(self.mask_paths[idx])
 
+        img_np = sitk.GetArrayFromImage(img_sitk).astype(np.float32)
+        mask_np = sitk.GetArrayFromImage(mask_sitk).astype(np.float32)
+
         subject = tio.Subject(
-            image=tio.ScalarImage(tensor=torch.from_numpy(sitk.GetArrayFromImage(img_sitk)).unsqueeze(0)),
-            label=tio.LabelMap(tensor=torch.from_numpy(sitk.GetArrayFromImage(mask_sitk)).unsqueeze(0))
+            image=tio.ScalarImage(tensor=torch.from_numpy(img_np).unsqueeze(0)),
+            label=tio.LabelMap(tensor=torch.from_numpy(mask_np).unsqueeze(0))
         )
 
         #  应用 transform
@@ -150,10 +153,10 @@ class SAM3DDataset(Dataset):
 
 # ================== 测试 ==================
 if __name__ == "__main__":
-    img_dir = r"C:\Users\WS\Desktop\nnUNet-SAM\dataset\train\imagesTr"
-    mask_dir = r"C:\Users\WS\Desktop\nnUNet-SAM\dataset\train\labelsTr"
+    img_dir = r"D:\SAM\Esophagus\20251127\Sam3D\DATASET\train\imagesTr"
+    mask_dir = r"D:\SAM\Esophagus\20251127\Sam3D\DATASET\train\labelsTr"
 
-    dataset = SAM3DDataset(img_dir, mask_dir, img_size=256)
+    dataset = SAM3DDataset(img_dir, mask_dir)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
     for batch in dataloader:
