@@ -268,7 +268,7 @@ if __name__ == '__main__':
     save_dir = '/home/wusi/SAM-Med3Ddata/Eso_CTV/TrainResult'  # 训练结果保存文件夹
     os.makedirs(save_dir, exist_ok=True)
 
-    dataset = SAM3DDataset(img_dir=img_dir, mask_dir=mask_dir, img_size=128)
+    dataset = SAM3DDataset(img_dir=img_dir, mask_dir=mask_dir)
     all_image_paths = dataset.img_paths
 
     sam_checkpoint = "/home/wusi/SAM-Med3D/checkpoint/sam_med3d_turbo.pth"
