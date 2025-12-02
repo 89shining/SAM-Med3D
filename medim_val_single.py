@@ -7,7 +7,8 @@ from utils.metric_utils import compute_metrics, print_computed_metrics
 
 if __name__ == "__main__":
     ''' 1. prepare the pre-trained model with local path or huggingface url '''
-    ckpt_path = "https://huggingface.co/blueyo0/SAM-Med3D/blob/main/sam_med3d_turbo.pth"
+    # ckpt_path = "https://huggingface.co/blueyo0/SAM-Med3D/blob/main/sam_med3d_turbo.pth"
+    ckpt_path = "D:\project\SAM-Med3D\checkpoint\sam_med3d_turbo.pth"
     # or you can use a local path like:
     model = medim.create_model("SAM-Med3D", pretrained=True, checkpoint_path=ckpt_path)
 
