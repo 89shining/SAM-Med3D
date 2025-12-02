@@ -74,8 +74,8 @@ class DownsampleAndPadZ:
 
         return subject
 
-class SAM3DDataset(Dataset):
-    def __init__(self, img_dir, mask_dir):
+class SAM3DTestDataset(Dataset):
+    def __init__(self, img_dir, mask_dir,target_z=128):
         """
         Args:
             img_dir (str): 图像文件夹路径 (imagesTr)
@@ -84,13 +84,14 @@ class SAM3DDataset(Dataset):
         self.img_paths = sorted(glob.glob(os.path.join(img_dir, "*.nii.gz")))
         self.mask_paths = sorted(glob.glob(os.path.join(mask_dir, "*.nii.gz")))
         assert len(self.img_paths) == len(self.mask_paths), "图像和mask数量不一致！"
+        self.target_z = target_z
 
         # 预处理
         self.transform = tio.Compose([
             tio.ToCanonical(),
-            DownsampleAndPadZ(target_z=128),
+            DownsampleAndPadZ(target_z),
             tio.ZNormalization(),
-            tio.RandomFlip(axes=(0, 1, 2)),  # 数据增强：随机翻转
+            # tio.RandomFlip(axes=(0, 1, 2)),  # 数据增强：随机翻转
             # 可选增强
             # tio.RandomNoise(mean=0, std=(0, 0.1)),
             # tio.RandomAffine(scales=(0.9, 1.1), degrees=10),
@@ -134,6 +135,8 @@ class SAM3DDataset(Dataset):
         # print("原始图像 shape:", img_np.shape)  # (Z, H, W)
         # print("原始掩码 shape:", mask_np.shape)
 
+        orig_Z = img_np.shape[0]
+
         subject = tio.Subject(
             image=tio.ScalarImage(tensor=torch.from_numpy(img_np).unsqueeze(0)),
             label=tio.LabelMap(tensor=torch.from_numpy(mask_np).unsqueeze(0))
@@ -156,7 +159,9 @@ class SAM3DDataset(Dataset):
         return {
             "image": img_tensor,   # (1,D,H,W)
             "mask": mask_tensor,   # (1,D,H,W)
-            "box": box             # (2,3)
+            "box": box,             # (2,3)
+            "img_path": self.img_paths[idx],       # 用于恢复 CT header
+            "orig_Z": orig_Z,           # ★ 恢复时用到
         }
 
 # ================== 测试 ==================
