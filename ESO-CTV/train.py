@@ -272,7 +272,7 @@ if __name__ == '__main__':
     all_image_paths = dataset.img_paths
 
     sam_checkpoint = "/home/wusi/SAM-Med3D/checkpoint/sam_med3d_turbo.pth"
-    model_type = "vit_b"
+    model_type = "vit_b_ori"
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     torch.backends.cudnn.benchmark = True
@@ -326,7 +326,7 @@ if __name__ == '__main__':
             # print(name)
 
         train_one_fold(fold, train_idx, val_idx, dataset, net, device,
-                       epochs=100, batch_size=2, lr=0.001, save_dir=save_dir)
+                       epochs=100, batch_size=12, lr=0.001, save_dir=save_dir)
         logging.info(f"Training Fold{fold + 1} completed.")
 
         torch.cuda.empty_cache()

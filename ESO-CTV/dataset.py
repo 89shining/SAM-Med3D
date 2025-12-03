@@ -15,62 +15,39 @@ from torch.utils.data import Dataset, DataLoader
 import torchio as tio
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy.ndimage import zoom
 
-
-class ConvHW(nn.Module):
+class ResizeWithZoom:
     """
-    只对 H/W 下采样，Z 保持不变
-    512→256→128，Z 不变
+    使用 scipy.ndimage.zoom 将图像和 mask 统一缩放到 128×128×128
     """
-    def __init__(self, trainable=False):
-        super().__init__()
 
-        self.conv = nn.Conv3d(
-            in_channels=1,
-            out_channels=1,
-            kernel_size=(1, 3, 3),
-            stride=(1, 2, 2),     # ★ Z 不动，只下采样 H/W
-            padding=(0, 1, 1),
-            bias=False
-        )
-
-        if not trainable:
-            for p in self.conv.parameters():
-                p.requires_grad = False
-            with torch.no_grad():
-                self.conv.weight.fill_(1.0 / 9.0)
-
-    def forward(self, x):
-        return self.conv(x)
-
-class DownsampleAndPadZ:
-    def __init__(self, target_z=128):
-        self.conv1 = ConvHW()
-        self.conv2 = ConvHW()
-        self.target_z = target_z
+    def __init__(self, target_size=(128, 128, 128)):
+        self.target_z, self.target_h, self.target_w = target_size
 
     def __call__(self, subject):
-        img = subject['image'].data  # (1, Z, H, W)
-        mask = subject['label'].data
+        img = subject['image'].data[0].cpu().numpy()   # (Z, H, W)
+        mask = subject['label'].data[0].cpu().numpy()  # (Z, H, W)
 
-        # ---- 两次 H/W 下采样 ----
-        img = self.conv1(img.unsqueeze(0)).squeeze(0)   # Z unchanged
-        img = self.conv2(img.unsqueeze(0)).squeeze(0)
+        z, h, w = img.shape
 
-        mask = mask.unsqueeze(0)
-        mask = F.max_pool3d(mask, kernel_size=(1,2,2), stride=(1,2,2))
-        mask = F.max_pool3d(mask, kernel_size=(1,2,2), stride=(1,2,2))
-        mask = mask.squeeze(0)
+        # ---- 计算缩放因子 ----
+        zoom_factor = [
+            self.target_z / z,
+            self.target_h / h,
+            self.target_w / w
+        ]
 
-        # ---- Z padding to 128 ----
-        z = img.shape[1]
-        pad = self.target_z - z
-        if pad > 0:
-            img = F.pad(img, (0,0, 0,0, 0,pad))   # pad Z in front
-            mask = F.pad(mask, (0,0, 0,0, 0,pad))
+        # ---- zoom 缩放图像 ----
+        img_resized = zoom(img, zoom_factor, order=3)   # 三次样条，平滑
+        mask_resized = zoom(mask, zoom_factor, order=0) # 最近邻，不破坏二值
 
-        subject['image'].set_data(img)
-        subject['label'].set_data(mask)
+        # ---- 放回 subject ----
+        img_resized = torch.from_numpy(img_resized).unsqueeze(0)  # (1,D,H,W)
+        mask_resized = torch.from_numpy(mask_resized).unsqueeze(0)
+
+        subject['image'].set_data(img_resized)
+        subject['label'].set_data(mask_resized)
 
         return subject
 
@@ -88,8 +65,8 @@ class SAM3DDataset(Dataset):
         # 预处理
         self.transform = tio.Compose([
             tio.ToCanonical(),
-            DownsampleAndPadZ(target_z=128),
-            tio.ZNormalization(),
+            ResizeWithZoom(target_size=(128,128,128)),
+            tio.ZNormalization(masking_method=lambda x: x > 0),
             tio.RandomFlip(axes=(0, 1, 2)),  # 数据增强：随机翻转
             # 可选增强
             # tio.RandomNoise(mean=0, std=(0, 0.1)),
@@ -160,15 +137,15 @@ class SAM3DDataset(Dataset):
         }
 
 # ================== 测试 ==================
-# if __name__ == "__main__":
-#     img_dir = r"C:\Users\dell\Desktop\dataset\train\imagesTr"
-#     mask_dir = r"C:\Users\dell\Desktop\dataset\train\labelsTr"
-#
-#     dataset = SAM3DDataset(img_dir, mask_dir)
-#     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
-#
-#     for batch in dataloader:
-#         print("Image:", batch["image"].shape, batch["image"].dtype)  # (B,1,D,H,W)
-#         print("Mask:", batch["mask"].shape, batch["mask"].dtype)    # (B,1,D,H,W)
-#         print("Box:", batch["box"].shape, batch["box"])             # (B,2,3)
-#         break
+if __name__ == "__main__":
+    img_dir = r"C:\Users\dell\Desktop\dataset\train\imagesTr"
+    mask_dir = r"C:\Users\dell\Desktop\dataset\train\labelsTr"
+
+    dataset = SAM3DDataset(img_dir, mask_dir)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+
+    for batch in dataloader:
+        print("Image:", batch["image"].shape, batch["image"].dtype)  # (B,1,D,H,W)
+        print("Mask:", batch["mask"].shape, batch["mask"].dtype)    # (B,1,D,H,W)
+        print("Box:", batch["box"].shape, batch["box"])             # (B,2,3)
+        break
