@@ -1,3 +1,7 @@
+"""
+只保留GT切片体积
+"""
+
 import os
 import glob
 import torch
@@ -128,8 +132,8 @@ class SAM3DDataset(Dataset):
 #   ④ 测试
 # -------------------------------
 # if __name__ == "__main__":
-#     img_dir = r"C:\Users\dell\Desktop\dataset\train\imagesTr"
-#     mask_dir = r"C:\Users\dell\Desktop\dataset\train\labelsTr"
+#     img_dir = r"C:\Users\dell\Desktop\dataset\All_input\imagesTr"
+#     mask_dir = r"C:\Users\dell\Desktop\dataset\All_input\labelsTr"
 #
 #     dataset = SAM3DDataset(img_dir, mask_dir)
 #     loader = DataLoader(dataset, batch_size=1, shuffle=True)

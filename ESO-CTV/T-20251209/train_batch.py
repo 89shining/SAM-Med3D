@@ -1,6 +1,9 @@
-# 五折交叉验证 GTVp训练
+# 五折交叉验证 CTV训练
 import os
 import sys
+
+import cv2
+import numpy as np
 
 sys.path.append("/home/wusi/SAM-Med3D")
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -15,13 +18,61 @@ from sklearn.model_selection import KFold
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from monai.losses import DiceCELoss
-from dataset_GT_nnUNetbox import SAM3DDataset
+from dataset import SAM3DDataset
 from segment_anything import sam_model_registry3D
 
 # 设置随机种子
 manual_seed = int.from_bytes(os.urandom(4), 'little')
 random.seed(manual_seed)
 torch.manual_seed(manual_seed)
+
+def visualize_sample(img, mask, box, save_path, alpha=0.4):
+    """
+    img : (D,H,W) numpy array
+    mask: (D,H,W) numpy array, 0/1
+    box : torch tensor (2,3)  [ [x1,y1,z1], [x2,y2,z2] ]
+    save_path : 保存路径
+    """
+
+    # 转 numpy
+    if hasattr(box, "cpu"):
+        box = box.cpu().numpy()
+
+    x1, y1, z1 = box[0].astype(int)
+    x2, y2, z2 = box[1].astype(int)
+
+    # 取 box 中心切片（Z轴）
+    mid_z = int((z1 + z2) / 2)
+
+    # 取该切片图像
+    img2d = img[mid_z]      # (H,W)
+    mask2d = mask[mid_z]    # (H,W)
+
+    # ---- 灰度转可视化图 ----
+    img_norm = cv2.normalize(img2d, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    img_rgb = cv2.cvtColor(img_norm, cv2.COLOR_GRAY2BGR)
+
+    # ---- 生成 mask 叠加色（红色半透明） ----
+    mask_color = np.zeros_like(img_rgb)
+    mask_color[:, :, 2] = (mask2d * 255)  # 红色通道
+
+    # cv2.addWeighted 做透明叠加
+    overlay = cv2.addWeighted(img_rgb, 1.0, mask_color, alpha, 0)
+
+    # ---- 绘制 box 投影 ----
+    cv2.rectangle(
+        overlay,
+        (x1, y1),
+        (x2, y2),
+        (0, 255, 0),  # 绿色
+        2
+    )
+
+    # ---- 保存 ----
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    cv2.imwrite(save_path, overlay)
+
+    return overlay
 
 
 def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
@@ -75,9 +126,9 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
     scalelr = lr
     optimizer = torch.optim.AdamW(
         [
-            {"params": sam_model.image_encoder.parameters(), "lr": lr},  # 主干
-            {"params": sam_model.prompt_encoder.parameters(), "lr": lr * 0.1},  # 提示编码器
-            {"params": sam_model.mask_decoder.parameters(), "lr": lr * 0.1},  # 掩码解码器
+            {"params": sam_model.image_encoder.parameters(), "lr": lr},  # 图像编码器
+            {"params": sam_model.prompt_encoder.parameters(), "lr": lr},  # 提示编码器
+            {"params": sam_model.mask_decoder.parameters(), "lr": lr},  # 掩码解码器
         ],
         lr=lr,
         betas=(0.9, 0.999),
@@ -106,37 +157,52 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
                 true_masks = batch['mask'].to(device)  # (B,1,D,H,W)
                 bbox = batch['box'].to(device)  # (B,2,3)
 
+                #  训练可视化检查
+                if epoch == 0 and batch_idx == 0:
+                    img_np = imgs[0, 0].cpu().numpy()  # (D,H,W)
+                    mask_np = true_masks[0, 0].cpu().numpy()
+                    box_np = bbox[0]
+
+                    out_path = os.path.join(fold_dir, f"debug_sample_epoch{epoch + 1}.png")
+                    visualize_sample(img_np, mask_np, box_np, out_path)
+
+                    print(f"[DEBUG] Saved visualization → {out_path}")
+
                 # 先得到整个 batch 的 image_embeddings
                 image_embeddings = net.image_encoder(imgs)
 
-                batch_pred_masks = []
-                for b in range(imgs.shape[0]):
-                    curr_embedding = image_embeddings[b].unsqueeze(0)  # (1, C, D, H, W)
-                    curr_box = bbox[b].unsqueeze(0)  # (1, 2, 3)
+                # Prompt Encoding (batch)
+                sparse_embeddings, dense_embeddings = net.prompt_encoder(
+                    points=None,
+                    boxes=bbox,
+                    masks=None
+                )
 
-                    sparse_embeddings, dense_embeddings = net.prompt_encoder(
-                        points=None,
-                        boxes=curr_box,
-                        masks=None
-                    )
-                    low_res_masks, _ = net.mask_decoder(
-                        image_embeddings=curr_embedding,
-                        image_pe=net.prompt_encoder.get_dense_pe(),
-                        sparse_prompt_embeddings=sparse_embeddings,
-                        dense_prompt_embeddings=dense_embeddings,
-                        multimask_output=False
-                    )
-                    # 上采样到原尺寸
-                    pred_mask = torch.nn.functional.interpolate(
-                        low_res_masks,
-                        size=true_masks.shape[-3:],  # (D,H,W)
-                        mode='trilinear',
-                        align_corners=False
-                    )
-                    batch_pred_masks.append(pred_mask)
+                # Mask Decoding (batch)
+                low_res_masks, _ = net.mask_decoder(
+                    image_embeddings=image_embeddings,
+                    image_pe=net.prompt_encoder.get_dense_pe(),
+                    sparse_prompt_embeddings=sparse_embeddings,
+                    dense_prompt_embeddings=dense_embeddings,
+                    multimask_output=False
+                )
 
-                # 拼回 batch
-                pred_masks = torch.cat(batch_pred_masks, dim=0)  # (B, 1, D, H, W)
+                # # ========= 🔍 Debug 输出 ============
+                # print("\n[DEBUG SHAPES]")
+                # print("image_embeddings:", image_embeddings.shape)
+                # print("sparse embeddings:", sparse_embeddings.shape)
+                # print("dense embeddings:", dense_embeddings.shape)
+                # print("low_res_masks:", low_res_masks.shape)
+                # print("bbox:", bbox.shape, bbox[0])
+                # print("=================================\n")
+
+                # Upsample (batch)
+                pred_masks = torch.nn.functional.interpolate(
+                    low_res_masks,
+                    size=true_masks.shape[-3:],  # (D,H,W)
+                    mode='trilinear',
+                    align_corners=False
+                )
 
                 train_loss = criterion(pred_masks, true_masks.float())
 
@@ -182,34 +248,29 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
                     # 先得到整个 batch 的 image_embeddings
                     image_embeddings = net.image_encoder(imgs)
 
-                    batch_pred_masks = []
-                    for b in range(imgs.shape[0]):
-                        curr_embedding = image_embeddings[b].unsqueeze(0)  # (1, C, D, H, W)
-                        curr_box = bbox[b].unsqueeze(0)  # (1, 2, 3)
+                    # Prompt Encoding (batch)
+                    sparse_embeddings, dense_embeddings = net.prompt_encoder(
+                        points=None,
+                        boxes=bbox,
+                        masks=None
+                    )
 
-                        sparse_embeddings, dense_embeddings = net.prompt_encoder(
-                            points=None,
-                            boxes=curr_box,
-                            masks=None
-                        )
-                        low_res_masks, _ = net.mask_decoder(
-                            image_embeddings=curr_embedding,
-                            image_pe=net.prompt_encoder.get_dense_pe(),
-                            sparse_prompt_embeddings=sparse_embeddings,
-                            dense_prompt_embeddings=dense_embeddings,
-                            multimask_output=False
-                        )
-                        # 上采样到原尺寸
-                        pred_mask = torch.nn.functional.interpolate(
-                            low_res_masks,
-                            size=true_masks.shape[-3:],  # (D,H,W)
-                            mode='trilinear',
-                            align_corners=False
-                        )
-                        batch_pred_masks.append(pred_mask)
+                    # Mask Decoding (batch)
+                    low_res_masks, _ = net.mask_decoder(
+                        image_embeddings=image_embeddings,
+                        image_pe=net.prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sparse_embeddings,
+                        dense_prompt_embeddings=dense_embeddings,
+                        multimask_output=False
+                    )
 
-                    # 拼回 batch
-                    pred_masks = torch.cat(batch_pred_masks, dim=0)  # (B, 1, D, H, W)
+                    # Upsample (batch)
+                    pred_masks = torch.nn.functional.interpolate(
+                        low_res_masks,
+                        size=true_masks.shape[-3:],  # (D,H,W)
+                        mode='trilinear',
+                        align_corners=False
+                    )
 
                     val_loss = criterion(pred_masks, true_masks.float())
                     # 返回当前batch的loss
@@ -263,19 +324,18 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
 
 
 if __name__ == '__main__':
-    img_dir = "/home/wusi/SAM-Med3Ddata/dataset/All_input/imagesTr"
-    mask_dir = "/home/wusi/SAM-Med3Ddata/dataset/All_input/labelsTr"
-    box_mask_dir = "/home/wusi/SAM-Med3Ddata/dataset/All_input/nnUNet_box"
-    save_dir = '/home/wusi/SAM-Med3Ddata/TrainResult/GT_nnUNet_box'  # 训练结果保存文件夹
+    img_dir = "/home/wusi/SAM-Med3Ddata/Eso_CTV/dataset/train/imagesTr"
+    mask_dir = "/home/wusi/SAM-Med3Ddata/Eso_CTV/dataset/train/labelsTr"
+    save_dir = '/home/wusi/SAM-Med3Ddata/Eso_CTV/20251209/TrainResult'  # 训练结果保存文件夹
     os.makedirs(save_dir, exist_ok=True)
 
-    dataset = SAM3DDataset(img_dir=img_dir, mask_dir=mask_dir, box_mask_dir=box_mask_dir, img_size=256)
+    dataset = SAM3DDataset(img_dir=img_dir, mask_dir=mask_dir, crop_h=160, crop_w=128, target_size=(128,128,128))
     all_image_paths = dataset.img_paths
 
     sam_checkpoint = "/home/wusi/SAM-Med3D/checkpoint/sam_med3d_turbo.pth"
-    model_type = "vit_b"
+    model_type = "vit_b_ori"
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -311,6 +371,10 @@ if __name__ == '__main__':
         logging.info(f"[Info] Loaded 3D SAM checkpoint from {sam_checkpoint} with strict=False.")
         net.to(device)
 
+        # print("pixel_mean =", net.pixel_mean)
+        # print("pixel_std =", net.pixel_std)
+        # print("first layer weight =", net.image_encoder.patch_embed.proj.weight.shape)
+
         # 冻结图像编码器
         # for param in net.image_encoder.parameters():
         # param.requires_grad = False
@@ -327,7 +391,7 @@ if __name__ == '__main__':
             # print(name)
 
         train_one_fold(fold, train_idx, val_idx, dataset, net, device,
-                       epochs=100, batch_size=2, lr=0.001, save_dir=save_dir)
+                       epochs=100, batch_size=12, lr=0.001, save_dir=save_dir)
         logging.info(f"Training Fold{fold + 1} completed.")
 
         torch.cuda.empty_cache()

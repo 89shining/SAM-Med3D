@@ -95,9 +95,9 @@ class SAM3DDataset(Dataset):
 
 # ================== 测试 ==================
 if __name__ == "__main__":
-    img_dir = r"C:\Users\WS\Desktop\nnUNet-SAM/dataset/train/imagesTr"
-    mask_dir = r"C:\Users\WS\Desktop\nnUNet-SAM/dataset/train/labelsTr"
-    box_mask_dir = r"C:\Users\WS\Desktop\nnUNet-SAM/dataset/train/train_mask_box"
+    img_dir = r"C:\Users\WS\Desktop\nnUNet-SAM/dataset/All_input/imagesTr"
+    mask_dir = r"C:\Users\WS\Desktop\nnUNet-SAM/dataset/All_input/labelsTr"
+    box_mask_dir = r"C:\Users\WS\Desktop\nnUNet-SAM/dataset/All_input/train_mask_box"
     dataset = SAM3DDataset(img_dir, mask_dir, box_mask_dir, img_size=256)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 

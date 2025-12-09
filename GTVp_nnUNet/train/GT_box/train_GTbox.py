@@ -263,8 +263,8 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
 
 
 if __name__ == '__main__':
-    img_dir = "/home/wusi/SAM-Med3Ddata/dataset/train/imagesTr"
-    mask_dir = "/home/wusi/SAM-Med3Ddata/dataset/train/labelsTr"
+    img_dir = "/home/wusi/SAM-Med3Ddata/dataset/All_input/imagesTr"
+    mask_dir = "/home/wusi/SAM-Med3Ddata/dataset/All_input/labelsTr"
     save_dir = '/home/wusi/SAM-Med3Ddata/TrainResult/GT_box'  # 训练结果保存文件夹
     os.makedirs(save_dir, exist_ok=True)
 

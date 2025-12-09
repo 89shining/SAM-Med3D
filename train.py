@@ -37,7 +37,7 @@ parser.add_argument('--checkpoint', type=str, default='ckpt/sam_med3d.pth')
 parser.add_argument('--device', type=str, default='cuda')
 parser.add_argument('--work_dir', type=str, default='work_dir')
 
-# train
+# All_input
 parser.add_argument('--num_workers', type=int, default=24)
 parser.add_argument('--gpu_ids', type=int, nargs='+', default=[0, 1])
 parser.add_argument('--multi_gpu', action='store_true', default=False)
@@ -436,12 +436,12 @@ class BaseTrainer:
                 # save latest checkpoint
                 self.save_checkpoint(epoch, state_dict, describe='latest')
 
-                # save train loss best checkpoint
+                # save All_input loss best checkpoint
                 if epoch_loss < self.best_loss:
                     self.best_loss = epoch_loss
                     self.save_checkpoint(epoch, state_dict, describe='loss_best')
 
-                # save train dice best checkpoint
+                # save All_input dice best checkpoint
                 if epoch_dice > self.best_dice:
                     self.best_dice = epoch_dice
                     self.save_checkpoint(epoch, state_dict, describe='dice_best')

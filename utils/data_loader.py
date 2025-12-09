@@ -14,7 +14,7 @@ class Dataset_Union_ALL(Dataset):
     def __init__(
         self,
         paths,
-        mode="train",
+        mode="All_input",
         data_type="Tr",
         image_size=128,
         transform=None,
@@ -88,7 +88,7 @@ class Dataset_Union_ALL(Dataset):
 
         if subject.label.data.sum() <= self.threshold:
             return self.__getitem__(np.random.randint(self.__len__()))
-        if self.mode == "train" and self.data_type == "Tr":
+        if self.mode == "All_input" and self.data_type == "Tr":
             return {
                 "image": subject.image.data.clone().detach(),
                 "label": subject.label.data.clone().detach(),

@@ -1,5 +1,5 @@
 """
-image/CTV.nii.gz 512——Conv 3d —— 256 nii.gz——3d box
+image/CTV.nii.gz 512——Resize128——3d box
 """
 
 """

@@ -15,7 +15,7 @@ from sklearn.model_selection import KFold
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from monai.losses import DiceCELoss
-from dataset import SAM3DDataset
+from dataset_crop import SAM3DDataset
 from segment_anything import sam_model_registry3D
 
 # 设置随机种子
@@ -263,9 +263,9 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
 
 
 if __name__ == '__main__':
-    img_dir = "/home/wusi/SAM-Med3Ddata/Eso_CTV/dataset/train/imagesTr"
-    mask_dir = "/home/wusi/SAM-Med3Ddata/Eso_CTV/dataset/train/labelsTr"
-    save_dir = '/home/wusi/SAM-Med3Ddata/Eso_CTV/TrainResult'  # 训练结果保存文件夹
+    img_dir = "/home/wusi/SAM-Med3Ddata/Eso_CTV/dataset/All_input/imagesTr"
+    mask_dir = "/home/wusi/SAM-Med3Ddata/Eso_CTV/dataset/All_input/labelsTr"
+    save_dir = '/home/wusi/SAM-Med3Ddata/Eso_CTV/TrainResult_crop'  # 训练结果保存文件夹
     os.makedirs(save_dir, exist_ok=True)
 
     dataset = SAM3DDataset(img_dir=img_dir, mask_dir=mask_dir)
@@ -274,7 +274,7 @@ if __name__ == '__main__':
     sam_checkpoint = "/home/wusi/SAM-Med3D/checkpoint/sam_med3d_turbo.pth"
     model_type = "vit_b_ori"
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
