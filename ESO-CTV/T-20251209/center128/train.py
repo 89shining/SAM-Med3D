@@ -171,38 +171,44 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
                 # 先得到整个 batch 的 image_embeddings
                 image_embeddings = net.image_encoder(imgs)
 
-                # Prompt Encoding (batch)
-                sparse_embeddings, dense_embeddings = net.prompt_encoder(
-                    points=None,
-                    boxes=bbox,
-                    masks=None
-                )
+                batch_pred_masks = []
+                for b in range(imgs.shape[0]):
+                    curr_embedding = image_embeddings[b].unsqueeze(0)  # (1, C, D, H, W)
+                    curr_box = bbox[b].unsqueeze(0)  # (1, 2, 3)
 
-                # Mask Decoding (batch)
-                low_res_masks, _ = net.mask_decoder(
-                    image_embeddings=image_embeddings,
-                    image_pe=net.prompt_encoder.get_dense_pe(),
-                    sparse_prompt_embeddings=sparse_embeddings,
-                    dense_prompt_embeddings=dense_embeddings,
-                    multimask_output=False
-                )
+                    sparse_embeddings, dense_embeddings = net.prompt_encoder(
+                        points=None,
+                        boxes=curr_box,
+                        masks=None
+                    )
+                    low_res_masks, _ = net.mask_decoder(
+                        image_embeddings=curr_embedding,
+                        image_pe=net.prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sparse_embeddings,
+                        dense_prompt_embeddings=dense_embeddings,
+                        multimask_output=False
+                    )
 
-                # # ========= 🔍 Debug 输出 ============
-                # print("\n[DEBUG SHAPES]")
-                # print("image_embeddings:", image_embeddings.shape)
-                # print("sparse embeddings:", sparse_embeddings.shape)
-                # print("dense embeddings:", dense_embeddings.shape)
-                # print("low_res_masks:", low_res_masks.shape)
-                # print("bbox:", bbox.shape, bbox[0])
-                # print("=================================\n")
+                    # # ========= 🔍 Debug 输出 ============
+                    # print("\n[DEBUG SHAPES]")
+                    # print("image_embeddings:", image_embeddings.shape)
+                    # print("sparse embeddings:", sparse_embeddings.shape)
+                    # print("dense embeddings:", dense_embeddings.shape)
+                    # print("low_res_masks:", low_res_masks.shape)
+                    # print("bbox:", bbox.shape, bbox[0])
+                    # print("=================================\n")
 
-                # Upsample (batch)
-                pred_masks = torch.nn.functional.interpolate(
-                    low_res_masks,
-                    size=true_masks.shape[-3:],  # (D,H,W)
-                    mode='trilinear',
-                    align_corners=False
-                )
+                    # 上采样到原尺寸
+                    pred_mask = torch.nn.functional.interpolate(
+                        low_res_masks,
+                        size=true_masks.shape[-3:],  # (D,H,W)
+                        mode='trilinear',
+                        align_corners=False
+                    )
+                    batch_pred_masks.append(pred_mask)
+
+                # 拼回 batch
+                pred_masks = torch.cat(batch_pred_masks, dim=0)  # (B, 1, D, H, W)
 
                 train_loss = criterion(pred_masks, true_masks.float())
 
@@ -248,29 +254,34 @@ def train_one_fold(fold, train_idx, val_idx, dataset, net, device,
                     # 先得到整个 batch 的 image_embeddings
                     image_embeddings = net.image_encoder(imgs)
 
-                    # Prompt Encoding (batch)
-                    sparse_embeddings, dense_embeddings = net.prompt_encoder(
-                        points=None,
-                        boxes=bbox,
-                        masks=None
-                    )
+                    batch_pred_masks = []
+                    for b in range(imgs.shape[0]):
+                        curr_embedding = image_embeddings[b].unsqueeze(0)  # (1, C, D, H, W)
+                        curr_box = bbox[b].unsqueeze(0)  # (1, 2, 3)
 
-                    # Mask Decoding (batch)
-                    low_res_masks, _ = net.mask_decoder(
-                        image_embeddings=image_embeddings,
-                        image_pe=net.prompt_encoder.get_dense_pe(),
-                        sparse_prompt_embeddings=sparse_embeddings,
-                        dense_prompt_embeddings=dense_embeddings,
-                        multimask_output=False
-                    )
+                        sparse_embeddings, dense_embeddings = net.prompt_encoder(
+                            points=None,
+                            boxes=curr_box,
+                            masks=None
+                        )
+                        low_res_masks, _ = net.mask_decoder(
+                            image_embeddings=curr_embedding,
+                            image_pe=net.prompt_encoder.get_dense_pe(),
+                            sparse_prompt_embeddings=sparse_embeddings,
+                            dense_prompt_embeddings=dense_embeddings,
+                            multimask_output=False
+                        )
+                        # 上采样到gt尺寸
+                        pred_mask = torch.nn.functional.interpolate(
+                            low_res_masks,
+                            size=true_masks.shape[-3:],  # (D,H,W)
+                            mode='trilinear',
+                            align_corners=False
+                        )
+                        batch_pred_masks.append(pred_mask)
 
-                    # Upsample (batch)
-                    pred_masks = torch.nn.functional.interpolate(
-                        low_res_masks,
-                        size=true_masks.shape[-3:],  # (D,H,W)
-                        mode='trilinear',
-                        align_corners=False
-                    )
+                    # 拼回 batch
+                    pred_masks = torch.cat(batch_pred_masks, dim=0)  # (B, 1, D, H, W)
 
                     val_loss = criterion(pred_masks, true_masks.float())
                     # 返回当前batch的loss
@@ -391,7 +402,7 @@ if __name__ == '__main__':
             # print(name)
 
         train_one_fold(fold, train_idx, val_idx, dataset, net, device,
-                       epochs=100, batch_size=12, lr=0.001, save_dir=save_dir)
+                       epochs=200, batch_size=12, lr=0.0001, save_dir=save_dir)
         logging.info(f"Training Fold{fold + 1} completed.")
 
         torch.cuda.empty_cache()
